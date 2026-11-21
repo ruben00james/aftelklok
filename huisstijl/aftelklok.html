@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="nl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aftelklok</title>
+<!--
+  Aftelklok voor de stream (OBS) en voor de zaal (presentatielaptop, telefoon). Eén pagina, twee weergaven.
+
+  WEERGAVE
+    zonder ?zaal   transparante klok van 1200x400. In OBS is dit de browserbron "Aftelklok" in de scene "1 Intro".
+    met ?zaal      schermvullend, met achtergrond en logo, zoals de Intro in de stream. Voor de beamer.
+                   Klik één keer in de pagina voor volledig scherm.
+                   Staat er geen tijd in het adres, dan vraagt de pagina eerst hoe laat de dienst begint.
+                   Toets T brengt je terug naar die vraag.
+
+  TIJD
+    ?tot=11:00            telt af naar die kloktijd van vandaag. Elke computer die de pagina opent toont dezelfde
+                          resterende tijd, zolang de klok van de computer goed staat.
+    ?tot=10:00,11:15,15:00   meerdere begintijden: de pagina kiest zelf de eerstvolgende. Na een begintijd blijft
+                          "We beginnen zo" een kwartier staan; daarna telt hij af naar de volgende.
+    ?minuten=5&seconden=0 telt een vaste duur af vanaf het moment dat de pagina wordt geladen (in OBS: zodra de
+                          scene live gaat). Zonder instelling: 5 minuten.
+
+  EXTRA
+    &tekst=Welkom         regel onder de klok (alleen met ?zaal).
+    &nu=10:57:30          doet alsof het nu zo laat is; alleen om te testen.
+
+  Voorbeelden:  aftelklok.html?tot=11:00            (OBS)
+                aftelklok.html?zaal&tot=11:00       (zaal)
+-->
+<style>
+  @font-face { font-family: 'Montserrat'; font-weight: 300; src: url('../fonts/Montserrat-Light.ttf'); }
+  @font-face { font-family: 'Montserrat'; font-weight: 500; src: url('../fonts/Montserrat-Medium.ttf'); }
+  @font-face { font-family: 'Montserrat'; font-weight: 600; src: url('../fonts/Montserrat-SemiBold.ttf'); }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  body { font-family: 'Montserrat', 'Avenir Next', 'Segoe UI', sans-serif; text-align: center; color: #f6f3ea; }
+
+  /* Het podium is 1200x400 (alleen de klok) of 1920x1080 (zaal, geschaald naar het scherm). */
+  #podium { position: absolute; left: 0; top: 0; width: 1200px; height: 400px; }
+  #klokvak { position: absolute; left: 0; top: 0; width: 1200px; height: 400px; }
+  .laag { position: absolute; left: 0; right: 0; transition: opacity .7s; }
+  .goud {
+    background: linear-gradient(180deg, #f0d893, #d9b25c 55%, #a87a2a);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  #kop { top: 18px; font-size: 30px; font-weight: 500; letter-spacing: .32em; text-transform: uppercase; }
+  #klok { top: 60px; font-size: 230px; font-weight: 300; line-height: 1.2; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+  #einde { top: 135px; font-size: 104px; font-weight: 300; line-height: 1.25; opacity: 0; }
+  .klaar #kop, .klaar #klok { opacity: 0; }
+  .klaar #einde { opacity: 1; }
+  .zaaldeel { display: none; }
+
+  /* Zaalweergave: zelfde opbouw en maten als de scene "1 Intro" in OBS. */
+  body.zaal { background: #03050a; cursor: none; }
+  body.zaal #podium {
+    left: 50%; top: 50%; width: 1920px; height: 1080px; overflow: hidden;
+    background:
+      radial-gradient(ellipse 900px 620px at 50% 40%, rgba(41, 145, 184, .42), transparent 70%),
+      radial-gradient(ellipse 1400px 500px at 50% 115%, rgba(217, 178, 92, .16), transparent 70%),
+      linear-gradient(180deg, #070c14, #03050a);
+  }
+  body.zaal #klokvak { left: 360px; top: 380px; }
+  body.zaal .zaaldeel { display: block; position: absolute; }
+  #banen { left: 0; top: 0; }
+  #banen g { transform-origin: 960px 470px; animation: wieg 10s ease-in-out infinite alternate; }
+  #banen g:nth-child(2) { animation-duration: 13s; animation-delay: -4s; }
+  #banen g:nth-child(3) { animation-duration: 16s; animation-delay: -9s; }
+  @keyframes wieg { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
+  #logo { left: 790px; top: 30px; width: 340px; }
+  #lijn { left: 610px; top: 760px; width: 700px; height: 2px; background: linear-gradient(90deg, transparent, #d9b25c 20%, #d9b25c 80%, transparent); }
+  #tekst { left: 0; right: 0; top: 796px; font-size: 46px; font-weight: 600; }
+  #hint { left: 0; right: 0; bottom: 24px; font-size: 22px; color: rgba(246, 243, 234, .6); transition: opacity 1s; }
+
+  /* Instelscherm: verschijnt in de zaalweergave als er geen tijd in het adres staat. */
+  #instel { display: none; }
+  body.zaal.instellen { cursor: auto; }
+  body.zaal.instellen #klokvak, body.zaal.instellen #hint { display: none; }
+  body.zaal.instellen #instel { display: block; position: absolute; left: 0; right: 0; top: 400px; }
+  #instel .vraag { font-size: 30px; font-weight: 500; letter-spacing: .32em; text-transform: uppercase; }
+  #instel input {
+    margin-top: 34px; width: 420px; font: 300 120px 'Montserrat', sans-serif; text-align: center; color: #f0d893;
+    background: rgba(255, 255, 255, .04); border: 0; border-bottom: 2px solid #d9b25c; outline: none; color-scheme: dark;
+  }
+  #instel button {
+    display: block; margin: 44px auto 0; padding: 16px 54px; font: 600 30px 'Montserrat', sans-serif; letter-spacing: .08em;
+    color: #05080d; background: linear-gradient(180deg, #f0d893, #d9b25c 55%, #a87a2a); border: 0; border-radius: 40px; cursor: pointer;
+  }
+</style>
+<body>
+  <div id="podium">
+    <svg id="banen" class="zaaldeel" width="1920" height="1080" viewBox="0 0 1920 1080" fill="none" stroke="#d9b25c" stroke-width="2">
+      <g><ellipse cx="960" cy="470" rx="1150" ry="330" transform="rotate(-14 960 470)" opacity=".50"/></g>
+      <g><ellipse cx="960" cy="470" rx="1040" ry="250" transform="rotate(-8 960 470)" opacity=".34"/></g>
+      <g><ellipse cx="960" cy="470" rx="1250" ry="420" transform="rotate(-20 960 470)" opacity=".24"/></g>
+    </svg>
+    <img id="logo" class="zaaldeel" src="logo-web.png" alt="ZDA Den Bosch – De Drie Engelen">
+    <div id="lijn" class="zaaldeel"></div>
+    <div id="tekst" class="zaaldeel"></div>
+    <div id="klokvak">
+      <div id="kop" class="laag">De dienst begint over</div>
+      <div id="klok" class="laag goud">05:00</div>
+      <div id="einde" class="laag goud">We beginnen zo</div>
+    </div>
+    <form id="instel">
+      <div class="vraag">Hoe laat begint de dienst?</div>
+      <input id="begintijd" type="time" required>
+      <button type="submit">Start de klok</button>
+    </form>
+    <div id="hint" class="zaaldeel">Klik voor volledig scherm · toets T om de tijd te wijzigen</div>
+  </div>
+  <script>
+    const instelling = new URLSearchParams(location.search);
+    const zaal = instelling.has('zaal');
+    const NABLIJVEN = 15 * 60 * 1000;   // zo lang blijft "We beginnen zo" staan voordat de volgende begintijd aan de beurt is
+
+    function getal(naam, standaard) {
+      const waarde = parseInt(instelling.get(naam), 10);
+      return Number.isFinite(waarde) && waarde >= 0 ? waarde : standaard;
+    }
+    // "11:00" of "11:00:30" → tijdstip van vandaag in milliseconden; ongeldige tekst geeft null.
+    function tijdstip(tekst) {
+      const m = /^(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?$/.exec((tekst || '').trim());
+      if (!m || +m[1] > 23 || +m[2] > 59) return null;
+      const d = new Date();
+      d.setHours(+m[1], +m[2], +(m[3] || 0), 0);
+      return d.getTime();
+    }
+
+    const geladen = Date.now();
+    const testtijd = tijdstip(instelling.get('nu'));
+    const verschuiving = testtijd === null ? 0 : testtijd - geladen;
+    const nu = () => Date.now() + verschuiving;
+
+    // Begintijden (?tot=) of een vaste duur (?minuten= en ?seconden=).
+    const begintijden = (instelling.get('tot') || '').split(',').map(tijdstip).filter(t => t !== null).sort((a, b) => a - b);
+    const heeftDuur = instelling.has('minuten') || instelling.has('seconden');
+    const duur = (heeftDuur ? getal('minuten', 0) * 60 + getal('seconden', 0) : 300) * 1000;
+    const vastEinde = nu() + duur;
+
+    function doel() {
+      if (!begintijden.length) return vastEinde;
+      const t = nu();
+      return begintijden.find(b => t < b + NABLIJVEN) ?? begintijden[begintijden.length - 1];
+    }
+
+    const klok = document.getElementById('klok');
+    const twee = n => String(n).padStart(2, '0');
+    function teken() {
+      const over = doel() - nu();
+      const rest = Math.max(0, Math.ceil(over / 1000));
+      const uren = Math.floor(rest / 3600), minuten = Math.floor(rest % 3600 / 60), seconden = rest % 60;
+      klok.textContent = uren ? uren + ':' + twee(minuten) + ':' + twee(seconden) : twee(minuten) + ':' + twee(seconden);
+      // 00:00 blijft één seconde staan, daarna vloeit "We beginnen zo" in.
+      document.body.classList.toggle('klaar', over <= -1000);
+    }
+
+    if (zaal) {
+      document.body.classList.add('zaal');
+      document.getElementById('tekst').textContent = instelling.get('tekst') || '';
+      const podium = document.getElementById('podium'), hint = document.getElementById('hint');
+      const schaal = () => {
+        podium.style.transform = 'translate(-50%, -50%) scale(' + Math.min(innerWidth / 1920, innerHeight / 1080) + ')';
+      };
+      schaal();
+      addEventListener('resize', schaal);
+
+      // Zonder tijd in het adres: eerst vragen hoe laat de dienst begint. Het antwoord komt in het adres te staan,
+      // zodat de pagina daarna te delen of als snelkoppeling te bewaren is.
+      const extra = instelling.get('tekst') ? '&tekst=' + encodeURIComponent(instelling.get('tekst')) : '';
+      const instellen = !begintijden.length && !heeftDuur;
+      if (instellen) {
+        document.body.classList.add('instellen');
+        const veld = document.getElementById('begintijd');
+        const straks = new Date(nu() + 30 * 60 * 1000);
+        veld.value = twee(straks.getHours()) + ':' + (straks.getMinutes() < 30 ? '00' : '30');
+        document.getElementById('instel').addEventListener('submit', gebeurtenis => {
+          gebeurtenis.preventDefault();
+          if (tijdstip(veld.value) !== null) location.search = '?zaal&tot=' + veld.value + extra;
+        });
+        veld.focus();
+      }
+      addEventListener('keydown', gebeurtenis => {
+        if (!instellen && gebeurtenis.key.toLowerCase() === 't') location.search = '?zaal' + extra;
+      });
+      addEventListener('click', () => {
+        if (!instellen && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+      });
+      document.addEventListener('fullscreenchange', () => { hint.style.opacity = document.fullscreenElement ? 0 : 1; });
+      setTimeout(() => { hint.style.opacity = 0; }, 8000);
+      // Houd het scherm wakker waar de browser dat toestaat.
+      const wakker = () => { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); };
+      wakker();
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wakker(); });
+    }
+
+    teken();
+    setInterval(teken, 100);
+  </script>
+</body>
+</html>
