@@ -22,7 +22,11 @@
                           scene live gaat). Zonder instelling: 5 minuten.
 
   EXTRA
+    &kop=Het%20middagprogramma%20begint%20over
+                          andere tekst boven de klok; standaard "De dienst begint over".
+    &einde=Welkom         andere tekst na afloop; standaard "We beginnen zo".
     &tekst=Welkom         regel onder de klok (alleen met ?zaal).
+                          In een adres schrijf je een spatie als %20; het instelscherm van de zaalweergave doet dat zelf.
     &nu=10:57:30          doet alsof het nu zo laat is; alleen om te testen.
 
   Voorbeelden:  aftelklok.html?tot=11:00            (OBS)
@@ -74,13 +78,15 @@
   /* Instelscherm: verschijnt in de zaalweergave als er geen tijd in het adres staat. */
   #instel { display: none; }
   body.zaal.instellen { cursor: auto; }
-  body.zaal.instellen #klokvak, body.zaal.instellen #hint { display: none; }
-  body.zaal.instellen #instel { display: block; position: absolute; left: 0; right: 0; top: 400px; }
+  body.zaal.instellen #klokvak, body.zaal.instellen #hint, body.zaal.instellen #lijn { display: none; }
+  body.zaal.instellen #instel { display: block; position: absolute; left: 0; right: 0; top: 392px; }
   #instel .vraag { font-size: 30px; font-weight: 500; letter-spacing: .32em; text-transform: uppercase; }
   #instel input {
-    margin-top: 34px; width: 420px; font: 300 120px 'Montserrat', sans-serif; text-align: center; color: #f0d893;
+    margin-top: 34px; width: 560px; font: 300 120px 'Montserrat', sans-serif; text-align: center; color: #f0d893;
     background: rgba(255, 255, 255, .04); border: 0; border-bottom: 2px solid #d9b25c; outline: none; color-scheme: dark;
   }
+  #instel label { display: block; margin-top: 40px; font-size: 22px; color: rgba(246, 243, 234, .7); }
+  #instel input#koptekst { display: block; margin: 10px auto 0; width: 760px; font: 500 30px 'Montserrat', sans-serif; padding: 8px 0; }
   #instel button {
     display: block; margin: 44px auto 0; padding: 16px 54px; font: 600 30px 'Montserrat', sans-serif; letter-spacing: .08em;
     color: #05080d; background: linear-gradient(180deg, #f0d893, #d9b25c 55%, #a87a2a); border: 0; border-radius: 40px; cursor: pointer;
@@ -104,6 +110,8 @@
     <form id="instel">
       <div class="vraag">Hoe laat begint de dienst?</div>
       <input id="begintijd" type="time" required>
+      <label for="koptekst">Tekst boven de klok</label>
+      <input id="koptekst" type="text" maxlength="48">
       <button type="submit">Start de klok</button>
     </form>
     <div id="hint" class="zaaldeel">Klik voor volledig scherm · toets T om de tijd te wijzigen</div>
@@ -143,6 +151,12 @@
       return begintijden.find(b => t < b + NABLIJVEN) ?? begintijden[begintijden.length - 1];
     }
 
+    // Teksten boven de klok en na afloop; leeg of afwezig geeft de standaardtekst.
+    const STANDAARDKOP = 'De dienst begint over';
+    const kop = (instelling.get('kop') || '').trim() || STANDAARDKOP;
+    document.getElementById('kop').textContent = kop;
+    if ((instelling.get('einde') || '').trim()) document.getElementById('einde').textContent = instelling.get('einde').trim();
+
     const klok = document.getElementById('klok');
     const twee = n => String(n).padStart(2, '0');
     function teken() {
@@ -166,21 +180,26 @@
 
       // Zonder tijd in het adres: eerst vragen hoe laat de dienst begint. Het antwoord komt in het adres te staan,
       // zodat de pagina daarna te delen of als snelkoppeling te bewaren is.
-      const extra = instelling.get('tekst') ? '&tekst=' + encodeURIComponent(instelling.get('tekst')) : '';
+      const mee = naam => instelling.get(naam) ? '&' + naam + '=' + encodeURIComponent(instelling.get(naam)) : '';
+      const extra = mee('einde') + mee('tekst');
       const instellen = !begintijden.length && !heeftDuur;
       if (instellen) {
         document.body.classList.add('instellen');
         const veld = document.getElementById('begintijd');
         const straks = new Date(nu() + 30 * 60 * 1000);
         veld.value = twee(straks.getHours()) + ':' + (straks.getMinutes() < 30 ? '00' : '30');
+        const kopveld = document.getElementById('koptekst');
+        kopveld.value = kop;
         document.getElementById('instel').addEventListener('submit', gebeurtenis => {
           gebeurtenis.preventDefault();
-          if (tijdstip(veld.value) !== null) location.search = '?zaal&tot=' + veld.value + extra;
+          const nieuweKop = kopveld.value.trim();
+          const kopdeel = nieuweKop && nieuweKop !== STANDAARDKOP ? '&kop=' + encodeURIComponent(nieuweKop) : '';
+          if (tijdstip(veld.value) !== null) location.search = '?zaal&tot=' + veld.value + kopdeel + extra;
         });
         veld.focus();
       }
       addEventListener('keydown', gebeurtenis => {
-        if (!instellen && gebeurtenis.key.toLowerCase() === 't') location.search = '?zaal' + extra;
+        if (!instellen && gebeurtenis.key.toLowerCase() === 't') location.search = '?zaal' + mee('kop') + extra;
       });
       addEventListener('click', () => {
         if (!instellen && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
